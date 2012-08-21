@@ -19,7 +19,7 @@
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
 #include <X11/extensions/Xdamage.h>
-#include <X11/extensions/Xinerama.h>
+#include <X11/extensions/Xrandr.h>
 #include <X11/extensions/record.h>
 
 #define STR2(x) #x
@@ -30,7 +30,7 @@
 // #define DBG(x) x
 
 struct window;
-struct xinerama_screen;
+struct xrandr_output;
 
 struct display {
     Display *dpy;
@@ -46,8 +46,8 @@ struct display {
     template < typename Fun > void record_pointer_events( Fun *callback );
     void select_cursor_input( const window &win );
 
-    typedef std::vector< xinerama_screen > screens_vector;
-    screens_vector xinerama_screens();
+    typedef std::vector< xrandr_output > outputs_vector;
+    outputs_vector xrandr_outputs();
 };
 
 struct window {
@@ -62,12 +62,17 @@ struct window {
     void define_cursor( Cursor c );
 };
 
-struct xinerama_screen {
+struct xrandr_output {
     const display *d;
-    XineramaScreenInfo info;
+    XRRCrtcInfo info;
+	std::string name;
 
-    xinerama_screen( const display &_d, const XineramaScreenInfo &_info )
-	: d( &_d ), info( _info ) {}
+    xrandr_output( const display &_d, const XRRCrtcInfo *_info, const char* _name )
+	: d( &_d ), info( *_info ), name( _name ) {
+		//Get rid of volatile data that didn't get copied
+		info.possible=info.outputs=NULL;
+		info.npossible=info.noutput=0;
+	}
 
     bool in_screen( int x, int y ) const;
     bool intersect_rectangle( const XRectangle &rec ) const;
@@ -147,17 +152,30 @@ void display::select_cursor_input( const window &win ) {
     XFixesSelectCursorInput( dpy, win.win, XFixesDisplayCursorNotifyMask );
 }
 
-display::screens_vector display::xinerama_screens() {
-    int number;
-    XineramaScreenInfo *screens = XineramaQueryScreens( dpy, &number );
-    if ( !screens ) ERR;
+display::outputs_vector display::xrandr_outputs() {
+	int major, minor;
+	if (!XRRQueryVersion (dpy, &major, &minor)) ERR;
+	if (!(major > 1 || (major == 1 && minor >= 2))) ERR;
 
-    screens_vector vec;
-    for ( int i = 0; i < number; ++i )
-	vec.push_back( xinerama_screen( *this, screens[ i ] ) );
+	bool has_1_3=false;
+	if (major > 1 || (major == 1 && minor >= 3)) has_1_3 = true;
+	XRRScreenResources* res = has_1_3?XRRGetScreenResourcesCurrent(dpy,RootWindow(dpy,DefaultScreen(dpy))):XRRGetScreenResources(dpy,RootWindow(dpy,DefaultScreen(dpy)));
 
-    XFree( screens );
-    return vec;
+	outputs_vector vec;
+	for (int o=0; o<res->noutput; o++) {
+		XRROutputInfo* output_info = XRRGetOutputInfo(dpy, res, res->outputs[o]);
+		if (output_info->crtc!=None)
+		{
+			XRRCrtcInfo* crtc_info = XRRGetCrtcInfo(dpy,res,output_info->crtc);
+			vec.push_back( xrandr_output( *this, crtc_info, output_info->name ) );
+			XRRFreeCrtcInfo(crtc_info);
+		}
+		XRRFreeOutputInfo(output_info);
+	}
+
+	XRRFreeScreenResources(res);
+	
+	return vec;
 }
 
 void window::create_damage() {
@@ -179,35 +197,35 @@ void window::define_cursor( Cursor c ) {
     XDefineCursor( d->dpy, win, c );
 }
 
-bool xinerama_screen::in_screen( int x, int y ) const {
-    return x >= info.x_org && x < info.x_org + info.width
-	&& y >= info.y_org && y < info.y_org + info.height;
+bool xrandr_output::in_screen( int x, int y ) const {
+    return x >= info.x && x < info.x + info.width
+	&& y >= info.y && y < info.y + info.height;
 }
 
 bool segment_intersect( int a1, int a2, int b1, int b2 ) {
     return a1 < b1 ? a2 > b1 : b2 > a1;
 }
 
-bool xinerama_screen::intersect_rectangle( const XRectangle &rec ) const {
-    return segment_intersect( rec.x, rec.x + rec.width,  info.x_org, info.x_org + info.width  )
-	&& segment_intersect( rec.y, rec.y + rec.height, info.y_org, info.y_org + info.height );
+bool xrandr_output::intersect_rectangle( const XRectangle &rec ) const {
+    return segment_intersect( rec.x, rec.x + rec.width,  info.x, info.x + info.width  )
+	&& segment_intersect( rec.y, rec.y + rec.height, info.y, info.y + info.height );
 }
 
 struct image_replayer {
     const display *src, *dst;
-    const xinerama_screen *src_screen;
+    const xrandr_output *src_output;
     window src_window, dst_window;
     XShmSegmentInfo src_info, dst_info;
     XImage *src_image, *dst_image;
     GC dst_gc;
     bool damaged;
 
-    image_replayer( const display &_src, const display &_dst, const xinerama_screen &_src_screen )
-	: src( &_src ), dst( &_dst), src_screen( &_src_screen )
+    image_replayer( const display &_src, const display &_dst, const xrandr_output &_src_output )
+	: src( &_src ), dst( &_dst), src_output( &_src_output )
 	, src_window( src->root() ), dst_window( dst->root() )
 	, damaged( true )
     {	
-	size_t sz = src_screen->info.width * src_screen->info.height * 4;
+	size_t sz = src_output->info.width * src_output->info.height * 4;
 	src_info.shmid = dst_info.shmid = shmget( IPC_PRIVATE, sz, IPC_CREAT | 0666 );
 	src_info.shmaddr = dst_info.shmaddr = (char *) shmat( src_info.shmid, 0, 0);
 	src_info.readOnly = dst_info.readOnly = false;
@@ -215,10 +233,10 @@ struct image_replayer {
 
 	src_image = XShmCreateImage( src->dpy, DefaultVisual( src->dpy, DefaultScreen( src->dpy ) ),
 	    DefaultDepth( src->dpy, DefaultScreen( src->dpy ) ), ZPixmap, src_info.shmaddr,
-	    &src_info, src_screen->info.width, src_screen->info.height );
+	    &src_info, src_output->info.width, src_output->info.height );
 	dst_image = XShmCreateImage( dst->dpy, DefaultVisual( dst->dpy, DefaultScreen( dst->dpy ) ),
 	    DefaultDepth( dst->dpy, DefaultScreen( dst->dpy ) ), ZPixmap, dst_info.shmaddr,
-	    &dst_info, src_screen->info.width, src_screen->info.height );
+	    &dst_info, src_output->info.width, src_output->info.height );
 
 	XShmAttach( src->dpy, &src_info );
 	XShmAttach( dst->dpy, &dst_info );
@@ -231,7 +249,7 @@ struct image_replayer {
 	    return;
 
 	XShmGetImage( src->dpy, src_window.win, src_image,
-		src_screen->info.x_org, src_screen->info.y_org, AllPlanes);
+		src_output->info.x, src_output->info.y, AllPlanes);
 	XShmPutImage( dst->dpy, dst_window.win, dst_gc, dst_image, 0, 0, 0, 0,
 		dst_image->width, dst_image->height, False );
 	XSync( dst->dpy, false );
@@ -242,20 +260,20 @@ struct image_replayer {
     }
 
     void damage( const XRectangle &rec ) {
-	damaged = damaged || src_screen->intersect_rectangle( rec );
+	damaged = damaged || src_output->intersect_rectangle( rec );
     }
 };
 
 struct mouse_replayer {
     const display src, dst;
-    const xinerama_screen src_screen;
+    const xrandr_output src_output;
     window dst_window;
     Cursor invisibleCursor;
     volatile bool on;
     std::recursive_mutex cursor_mutex;
 
-    mouse_replayer( const display &_src, const display &_dst, const xinerama_screen &_src_screen )
-	: src( _src ), dst( _dst), src_screen( _src_screen ), dst_window( dst.root() )
+    mouse_replayer( const display &_src, const display &_dst, const xrandr_output &_src_output )
+	: src( _src ), dst( _dst), src_output( _src_output ), dst_window( dst.root() )
 	, on( false )
     {
 	// create invisible cursor
@@ -287,10 +305,10 @@ struct mouse_replayer {
 	std::lock_guard< std::recursive_mutex > guard( cursor_mutex );
 
 	bool old_on = on;
-	on = src_screen.in_screen( x, y );
+	on = src_output.in_screen( x, y );
 
 	if ( on )
-	    dst_window.warp_pointer( x - src_screen.info.x_org, y - src_screen.info.y_org );
+	    dst_window.warp_pointer( x - src_output.info.x, y - src_output.info.y );
 	else
 	    // wiggle the cursor a bit to keep screensaver away
 	    dst_window.warp_pointer( x % 50, y % 50 );
@@ -354,7 +372,7 @@ void usage( const char *name )
 	<< "Options:" << std::endl
 	<< " -s <display name> (default :0)" << std::endl
 	<< " -d <display name> (default :1)" << std::endl
-	<< " -x <xinerama screen number> (default 0)" << std::endl;
+	<< " -x <RandR output name or number> (default 0)" << std::endl;
     exit( 0 );
 }
 
@@ -362,8 +380,8 @@ int main( int argc, char *argv[] )
 {
     XInitThreads();
 
-    std::string src_name( ":0" ), dst_name( ":1" );
-    unsigned screen_number = 0;
+    std::string src_name( ":0" ), dst_name( ":1" ), output_name("0");
+	bool output_is_num=true;
 
     int opt;
     while ( ( opt = getopt( argc, argv, "s:d:x:h" ) ) != -1 )
@@ -375,7 +393,7 @@ int main( int argc, char *argv[] )
 	    dst_name = optarg;
 	    break;
 	case 'x':
-	    screen_number = atoi( optarg );
+	    output_name = optarg;
 	    break;
 	default:
 	    usage( argv[ 0 ] );
@@ -385,14 +403,39 @@ int main( int argc, char *argv[] )
 	ERR;
     display src( src_name ), dst( dst_name );
 
-    auto screens = src.xinerama_screens();
-    if ( screen_number < 0 || screen_number >= screens.size() )
-	ERR;
-    auto &screen = screens[ screen_number ];
+	for (auto it=output_name.begin(); it<output_name.end(); it++)  {
+		if (!isdigit(*it)) {
+			output_is_num=false;
+			break;
+		}
+	}
+
+    auto outputs = src.xrandr_outputs();
+	auto &output = outputs[0];
+	
+	if (output_is_num)
+	{
+		int output_number=atoi(output_name.c_str());
+    	if ( output_number < 0 || output_number >= outputs.size() )
+			ERR;
+		output = outputs[output_number];
+	}
+	else
+	{
+		bool found=false;
+		for (auto it=outputs.begin(); it<outputs.end(); it++)  {
+			if (it->name==output_name)
+			{
+				found=true;
+				output=*it;
+			}
+		}
+		if (!found) ERR;
+	}
 
     // Clone src not to fight with the blocking loop.
-    mouse_replayer mouse( src.clone(), dst, screen );
-    image_replayer image( src, dst, screen );
+    mouse_replayer mouse( src.clone(), dst, output );
+    image_replayer image( src, dst, output );
 
     window root = src.root();
     root.create_damage();
@@ -415,3 +458,4 @@ int main( int argc, char *argv[] )
 	image.copy_if_damaged();
     }
 }
+;
