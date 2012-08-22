@@ -1,0 +1,25 @@
+Source: hybrid-screenclone
+Section: x11
+Priority: extra
+Maintainer: Jethro Beekman <jethro@jbeekman.nl>
+Build-Depends: cdbs (>= 0.4.85~), debhelper (>= 8~), dh-autoreconf, libxcursor-dev, libxdamage-dev, libxrandr-dev, libxtst-dev, libx11-dev
+Standards-Version: 3.9.2
+Vcs-Git: git://github.com/jethrogb/hybrid-screenclone.git
+Vcs-Browser: https://github.com/jethrogb/hybrid-screenclone
+
+Package: hybrid-screenclone
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Clone a single screen to another X server, in userspace.
+ This is a reimplementation of [hybrid-windump][hybrid-windump] with the
+ opposite use-case: doing all rendering using the integrated intel card and
+ using the additional card just to get more outputs (e.g. a triple-head with
+ ThinkPad T420). As such, it uses the DAMAGE extension to avoid unnecessary
+ redraws and the RECORD extension to capture mouse movements, which are
+ translated to mouse movements on the destination X server.
+ .
+ For this to work correctly, an additional virtual output must be
+ available. To get one, see the [virtual CRTC for intel][patch] patch.
+ .
+ [hybrid-windump]: https://github.com/harp1n/hybrid-windump
+ [patch]: https://github.com/liskin/patches/blob/master/hacks/xserver-xorg-video-intel-2.18.0_virtual_crtc.patch

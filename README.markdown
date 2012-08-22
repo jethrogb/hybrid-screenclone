@@ -7,8 +7,8 @@ ThinkPad T420). As such, it uses the DAMAGE extension to avoid unnecessary
 redraws and the RECORD extension to capture mouse movements, which are
 translated to mouse movements on the destination X server.
 
-For this to work correctly, an additional virtual Xinerama screen must be
-available. To get one, see my [virtual CRTC for intel][patch] patch.
+For this to work correctly, an additional virtual output must be
+available. To get one, see the [virtual CRTC for intel][patch] patch.
 
 [hybrid-windump]: https://github.com/harp1n/hybrid-windump
 [patch]: https://github.com/liskin/patches/blob/master/hacks/xserver-xorg-video-intel-2.18.0_virtual_crtc.patch
