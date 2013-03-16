@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <csignal>
 
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -28,6 +29,8 @@
 
 #define DBG(x)
 // #define DBG(x) x
+
+bool image_copy;
 
 struct window;
 struct xrandr_output;
@@ -365,6 +368,16 @@ struct mouse_replayer {
     }
 };
 
+void sigusr1_handler(int signum)
+{
+	image_copy=false;
+}
+
+void sigusr2_handler(int signum)
+{
+	image_copy=true;
+}
+
 void usage( const char *name )
 {
     std::cerr
@@ -379,6 +392,8 @@ void usage( const char *name )
 int main( int argc, char *argv[] )
 {
     XInitThreads();
+	signal(SIGUSR1, sigusr1_handler);
+	signal(SIGUSR2, sigusr2_handler);
 
     std::string src_name( ":0" ), dst_name( ":1" ), output_name("0");
 	bool output_is_num=true;
@@ -443,6 +458,7 @@ int main( int argc, char *argv[] )
     src.record_pointer_events( &mouse );
     src.select_cursor_input( root );
 
+	image_copy=true;
     for ( ;; ) {
 	do {
 	    const XEvent e = src.next_event();
@@ -454,8 +470,10 @@ int main( int argc, char *argv[] )
 	    }
 	} while ( src.pending() );
 
-	root.clear_damage();
-	image.copy_if_damaged();
+	if (image_copy) {
+		root.clear_damage();
+		image.copy_if_damaged();
+	}
     }
 }
 ;
