@@ -1,4 +1,4 @@
-AC_INIT([hybrid-screenclone], [20120821.0])
+AC_INIT([hybrid-screenclone], [20130315.0])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_SRCDIR([configure.ac])
 
