@@ -1,4 +1,4 @@
-AC_INIT([hybrid-screenclone], [20131005.0])
+AC_INIT([hybrid-screenclone], [20131005.1])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_SRCDIR([configure.ac])
 
@@ -10,6 +10,7 @@ PKG_CHECK_MODULES([xrandr], [xrandr])
 PKG_CHECK_MODULES([x11], [x11])
 PKG_CHECK_MODULES([xtst], [xtst])
 PKG_CHECK_MODULES([xcursor], [xcursor])
+PKG_CHECK_MODULES([xext], [xext])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
