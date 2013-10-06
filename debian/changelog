@@ -1,3 +1,9 @@
+hybrid-screenclone (20131005.0) raring; urgency=low
+
+  * Build for raring
+
+ -- Jethro Beekman <jethro@jethro.jbeekman.nl>  Sat, 05 Oct 2013 22:10:27 -0700
+
 hybrid-screenclone (20130315.0) quantal; urgency=low
 
   * Merge upstream
